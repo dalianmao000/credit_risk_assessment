@@ -4,9 +4,16 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from config import *
 
-def load_data():
-    """加载训练数据"""
-    df = pd.read_csv(TRAIN_DATA_PATH)
+def load_data(file_path=None):
+    """加载数据
+    Args:
+        file_path: 数据文件路径，如果为None则使用TRAIN_DATA_PATH
+    Returns:
+        DataFrame: 加载的数据
+    """
+    if file_path is None:
+        file_path = TRAIN_DATA_PATH
+    df = pd.read_csv(file_path)
     return df
 
 def explore_data(df):
@@ -35,9 +42,14 @@ def explore_data(df):
     plt.savefig(RESULT_DIR / 'target_distribution.png')
     plt.close()
     
-    # 绘制特征相关性热力图
+    # 绘制特征相关性热力图（只使用原始特征）
+    original_features = ['RevolvingUtilizationOfUnsecuredLines', 'age', 'NumberOfTime30-59DaysPastDueNotWorse',
+                        'DebtRatio', 'MonthlyIncome', 'NumberOfOpenCreditLinesAndLoans',
+                        'NumberOfTimes90DaysLate', 'NumberRealEstateLoansOrLines',
+                        'NumberOfTime60-89DaysPastDueNotWorse', 'NumberOfDependents']
+    
     plt.figure(figsize=(12, 10))
-    corr_matrix = df[FEATURES + [TARGET]].corr()
+    corr_matrix = df[original_features + [TARGET]].corr()
     sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt='.2f')
     plt.title('特征相关性热力图')
     plt.tight_layout()
@@ -46,9 +58,15 @@ def explore_data(df):
 
 def preprocess_data(df):
     """数据预处理"""
+    # 定义原始特征列表
+    original_features = ['RevolvingUtilizationOfUnsecuredLines', 'age', 'NumberOfTime30-59DaysPastDueNotWorse',
+                        'DebtRatio', 'MonthlyIncome', 'NumberOfOpenCreditLinesAndLoans',
+                        'NumberOfTimes90DaysLate', 'NumberRealEstateLoansOrLines',
+                        'NumberOfTime60-89DaysPastDueNotWorse', 'NumberOfDependents']
+    
     # 处理缺失值
     # 对于数值型特征，使用中位数填充
-    numeric_features = df[FEATURES].select_dtypes(include=['int64', 'float64']).columns
+    numeric_features = df[original_features].select_dtypes(include=['int64', 'float64']).columns
     for feature in numeric_features:
         df[feature] = df[feature].fillna(df[feature].median())
     
@@ -66,8 +84,17 @@ def preprocess_data(df):
     return df
 
 def save_processed_data(df, filename='processed_train.csv'):
-    """保存处理后的数据"""
+    """保存处理后的数据
+    Args:
+        df: 要保存的DataFrame
+        filename: 保存的文件名
+    """
+    # 确保目录存在
+    PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # 保存数据
     df.to_csv(PROCESSED_DATA_DIR / filename, index=False)
+    print(f"\n处理后的数据已保存到: {PROCESSED_DATA_DIR / filename}")
 
 if __name__ == "__main__":
     # 加载数据

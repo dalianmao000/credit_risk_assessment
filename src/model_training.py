@@ -294,47 +294,43 @@ def cross_validate_model(X, y, model_type='xgboost'):
     
     return cv_scores
 
-def feature_importance(model, model_type='xgboost'):
+def feature_importance(model, model_type):
     """分析特征重要性"""
-    if model_type == 'xgboost':
-        importance = model.get_score(importance_type='weight')
-        importance = sorted(importance.items(), key=lambda x: x[1], reverse=True)
-    elif model_type == 'lightgbm':
-        importance = list(zip(FEATURES, model.feature_importance()))
-        importance = sorted(importance, key=lambda x: x[1], reverse=True)
-    elif model_type == 'random_forest':
-        importance = list(zip(FEATURES, model.feature_importances_))
-        importance = sorted(importance, key=lambda x: x[1], reverse=True)
-    elif model_type == 'logistic_regression':
-        # 逻辑回归使用系数作为特征重要性，保留正负符号
-        importance = list(zip(FEATURES, model.coef_[0]))
-        importance = sorted(importance, key=lambda x: abs(x[1]), reverse=True)  # 按绝对值排序
-    elif model_type == 'catboost':
-        importance = list(zip(FEATURES, model.get_feature_importance()))
-        importance = sorted(importance, key=lambda x: x[1], reverse=True)
-    else:
-        raise ValueError(f"不支持的模型类型: {model_type}")
-    
-    print("\n特征重要性:")
-    for feature, score in importance:
-        print(f"{feature}: {score}")
-    
-    # 绘制特征重要性图
-    plt.figure(figsize=(10, 6))
-    features, scores = zip(*importance)
-    
     if model_type == 'logistic_regression':
-        # 为逻辑回归创建带有正负符号的条形图
+        importance = list(zip(FEATURES, model.coef_[0]))
+        importance = sorted(importance, key=lambda x: abs(x[1]), reverse=True)
+        features, scores = zip(*importance)
+        
+        plt.figure(figsize=(10, 8))
         colors = ['red' if x < 0 else 'blue' for x in scores]
-        plt.barh(features, scores, color=colors)
-        plt.axvline(x=0, color='black', linestyle='-', linewidth=0.5)  # 添加零线
-        plt.title(f'{model_type} 特征重要性（带正负符号）')
+        # 反转y轴顺序，使重要性大的在上方
+        plt.barh(range(len(features))[::-1], scores, color=colors)
+        plt.axvline(x=0, color='black', linestyle='-', linewidth=0.5)
+        plt.yticks(range(len(features))[::-1], features)
     else:
-        plt.barh(features, scores)
-        plt.title(f'{model_type} 特征重要性')
+        if model_type == 'xgboost':
+            # 获取特征重要性分数
+            importance_dict = model.get_score(importance_type='weight')
+            # 确保所有特征都有分数，如果没有则设为0
+            scores = [importance_dict.get(f, 0) for f in FEATURES]
+            importance = list(zip(FEATURES, scores))
+        elif model_type == 'lightgbm':
+            importance = list(zip(FEATURES, model.feature_importance()))
+        elif model_type in ['catboost', 'random_forest']:
+            importance = list(zip(FEATURES, model.feature_importances_))
+        
+        # 按重要性排序（从大到小）
+        importance = sorted(importance, key=lambda x: x[1], reverse=True)
+        features, scores = zip(*importance)
+        
+        plt.figure(figsize=(10, 8))
+        # 反转y轴顺序，使重要性大的在上方
+        plt.barh(range(len(features))[::-1], scores)
+        plt.yticks(range(len(features))[::-1], features)
     
+    plt.title(f'{model_type} 特征重要性')
     plt.tight_layout()
-    plt.savefig(RESULT_DIR / f'feature_importance_{model_type}.png')
+    plt.savefig(RESULT_DIR / f'{model_type}_feature_importance.png')
     plt.close()
     
     return importance

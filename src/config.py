@@ -127,3 +127,10 @@ FEATURE_ENGINEERING = {
     'income_bins': [0, 2000, 4000, 6000, 8000, 10000, float('inf')],
     'debt_ratio_bins': [0, 0.2, 0.4, 0.6, 0.8, 1.0, float('inf')]
 }
+
+# 风险阈值配置
+RISK_THRESHOLDS = {
+    'low': 0.3,     # 低风险阈值
+    'medium': 0.6,  # 中风险阈值
+    # 大于medium的为高风险
+}

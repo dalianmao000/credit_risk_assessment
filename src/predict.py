@@ -8,6 +8,8 @@ from sklearn.linear_model import LogisticRegression
 import joblib
 from pathlib import Path
 from config import *
+from data_exploration import preprocess_data
+from model_training import feature_engineering
 
 def feature_engineering(df):
     """特征工程"""
@@ -68,34 +70,28 @@ def feature_engineering(df):
     return df
 
 class CreditRiskPredictor:
-    def __init__(self, model_type='xgboost'):
-        """
-        初始化预测器
+    def __init__(self, model_type='lightgbm'):
+        """初始化预测器
         Args:
             model_type: 模型类型，可选 'xgboost', 'lightgbm', 'random_forest', 'logistic_regression', 'catboost'
         """
         self.model_type = model_type
         self.model = self._load_model()
-        
+    
     def _load_model(self):
-        """加载训练好的模型"""
+        """加载模型"""
         if self.model_type == 'xgboost':
-            model_path = MODEL_DIR / 'xgboost_model.json'
             model = xgb.Booster()
-            model.load_model(str(model_path))
+            model.load_model(str(MODEL_DIR / 'xgboost_model.json'))
         elif self.model_type == 'lightgbm':
-            model_path = MODEL_DIR / 'lightgbm_model.txt'
-            model = lgb.Booster(model_file=str(model_path))
+            model = lgb.Booster(model_file=str(MODEL_DIR / 'lightgbm_model.txt'))
         elif self.model_type == 'random_forest':
-            model_path = MODEL_DIR / 'random_forest_model.joblib'
-            model = joblib.load(model_path)
+            model = joblib.load(MODEL_DIR / 'random_forest_model.joblib')
         elif self.model_type == 'logistic_regression':
-            model_path = MODEL_DIR / 'logistic_regression_model.joblib'
-            model = joblib.load(model_path)
+            model = joblib.load(MODEL_DIR / 'logistic_regression_model.joblib')
         elif self.model_type == 'catboost':
-            model_path = MODEL_DIR / 'catboost_model.cbm'
             model = cb.CatBoostClassifier()
-            model.load_model(str(model_path))
+            model.load_model(MODEL_DIR / 'catboost_model.cbm')
         else:
             raise ValueError(f"不支持的模型类型: {self.model_type}")
         return model
@@ -104,127 +100,144 @@ class CreditRiskPredictor:
         """预处理输入数据"""
         if isinstance(data, dict):
             data = pd.DataFrame([data])
-        elif not isinstance(data, pd.DataFrame):
-            raise ValueError("输入数据必须是字典或DataFrame格式")
         
-        # 应用特征工程
-        processed_data = feature_engineering(data)
-        
+        # 数据预处理
+        data = preprocess_data(data)
+        # 特征工程
+        data = feature_engineering(data)
         # 选择特征
-        processed_data = processed_data[FEATURES]
+        data = data[FEATURES]
         
-        # 处理缺失值
-        for col in processed_data.columns:
-            if processed_data[col].dtype in ['int64', 'float64']:
-                processed_data[col] = processed_data[col].fillna(processed_data[col].median())
+        return data
+    
+    def predict_proba(self, data):
+        """预测违约概率"""
+        data = self.preprocess_input(data)
+        
+        if self.model_type == 'xgboost':
+            ddata = xgb.DMatrix(data)
+            proba = self.model.predict(ddata)
+        elif self.model_type == 'lightgbm':
+            proba = self.model.predict(data)
+        else:
+            proba = self.model.predict_proba(data)[:, 1]
+        
+        return proba
+    
+    def predict_risk_level(self, data):
+        """预测风险等级"""
+        proba = self.predict_proba(data)
+        
+        def get_risk_level(p):
+            if p < RISK_THRESHOLDS['low']:
+                return '低风险'
+            elif p < RISK_THRESHOLDS['medium']:
+                return '中风险'
             else:
-                processed_data[col] = processed_data[col].fillna(processed_data[col].mode()[0])
+                return '高风险'
         
-        return processed_data
+        if isinstance(proba, np.ndarray):
+            return [get_risk_level(p) for p in proba]
+        else:
+            return get_risk_level(proba)
+
+class EnsembleCreditRiskPredictor:
+    def __init__(self):
+        """初始化集成预测器，加载所有可用模型"""
+        self.models = {}
+        self.model_types = ['xgboost', 'lightgbm', 'random_forest', 'logistic_regression', 'catboost']
+        
+        for model_type in self.model_types:
+            try:
+                self.models[model_type] = CreditRiskPredictor(model_type)
+                print(f"成功加载 {model_type} 模型")
+            except Exception as e:
+                print(f"加载 {model_type} 模型失败: {str(e)}")
     
-    def predict(self, data, threshold=0.5):
-        """
-        预测违约概率
+    def predict_all(self, data):
+        """使用所有模型进行预测
         Args:
-            data: 输入数据
-            threshold: 分类阈值，默认0.5
+            data: 字典或DataFrame形式的输入数据
         Returns:
-            dict: 包含预测结果的字典
+            DataFrame: 包含所有模型的预测结果
         """
-        # 预处理数据
-        processed_data = self.preprocess_input(data)
+        results = {}
         
-        # 预测概率
-        if self.model_type == 'xgboost':
-            dmatrix = xgb.DMatrix(processed_data)
-            proba = self.model.predict(dmatrix)
-        elif self.model_type == 'lightgbm':
-            proba = self.model.predict(processed_data)
-        else:
-            proba = self.model.predict_proba(processed_data)[:, 1]
-            
-        # 转换为二分类结果
-        prediction = (proba >= threshold).astype(int)
-        
-        # 返回结果
-        result = {
-            'probability': float(proba[0]),
-            'prediction': int(prediction[0]),
-            'risk_level': self._get_risk_level(proba[0])
-        }
-        
-        return result
-    
-    def _get_risk_level(self, probability):
-        """根据概率确定风险等级"""
-        if probability < THRESHOLDS['low_risk']:
-            return '低风险'
-        elif probability < THRESHOLDS['medium_low_risk']:
-            return '中低风险'
-        elif probability < THRESHOLDS['medium_high_risk']:
-            return '中高风险'
-        else:
-            return '高风险'
-    
-    def batch_predict(self, data, threshold=0.5):
-        """
-        批量预测
-        Args:
-            data: 输入数据DataFrame
-            threshold: 分类阈值
-        Returns:
-            DataFrame: 包含预测结果的DataFrame
-        """
-        # 预处理数据
-        processed_data = self.preprocess_input(data)
-        
-        # 预测概率
-        if self.model_type == 'xgboost':
-            dmatrix = xgb.DMatrix(processed_data)
-            proba = self.model.predict(dmatrix)
-        elif self.model_type == 'lightgbm':
-            proba = self.model.predict(processed_data)
-        else:
-            proba = self.model.predict_proba(processed_data)[:, 1]
-            
-        # 转换为二分类结果
-        prediction = (proba >= threshold).astype(int)
+        # 对每个模型进行预测
+        for model_type, predictor in self.models.items():
+            try:
+                proba = predictor.predict_proba(data)
+                risk_level = predictor.predict_risk_level(data)
+                
+                if isinstance(data, dict):
+                    results[f'{model_type}_probability'] = [proba]
+                    results[f'{model_type}_risk_level'] = [risk_level]
+                else:
+                    results[f'{model_type}_probability'] = proba
+                    results[f'{model_type}_risk_level'] = risk_level
+            except Exception as e:
+                print(f"{model_type} 模型预测失败: {str(e)}")
         
         # 创建结果DataFrame
-        results = pd.DataFrame({
-            'probability': proba,
-            'prediction': prediction,
-            'risk_level': [self._get_risk_level(p) for p in proba]
-        })
+        results_df = pd.DataFrame(results)
         
-        return results
+        # 如果是单样本预测，添加输入特征
+        if isinstance(data, dict):
+            for key, value in data.items():
+                results_df[key] = value
+        
+        # 计算综合预测结果
+        proba_columns = [col for col in results_df.columns if col.endswith('_probability')]
+        results_df['ensemble_probability'] = results_df[proba_columns].mean(axis=1)
+        
+        def get_risk_level(p):
+            if p < RISK_THRESHOLDS['low']:
+                return '低风险'
+            elif p < RISK_THRESHOLDS['medium']:
+                return '中风险'
+            else:
+                return '高风险'
+        
+        results_df['ensemble_risk_level'] = results_df['ensemble_probability'].apply(get_risk_level)
+        
+        return results_df
 
-def predict_single_sample(sample_data, model_type='xgboost'):
-    """
-    预测单个样本的便捷函数
-    Args:
-        sample_data: 单个样本的数据（字典格式）
-        model_type: 模型类型
-    Returns:
-        dict: 预测结果
-    """
-    predictor = CreditRiskPredictor(model_type=model_type)
-    return predictor.predict(sample_data)
+def predict_single_sample(data, model_type='lightgbm'):
+    """预测单个样本"""
+    predictor = CreditRiskPredictor(model_type)
+    proba = predictor.predict_proba(data)
+    risk_level = predictor.predict_risk_level(data)
+    
+    result = {
+        'probability': float(proba),
+        'risk_level': risk_level
+    }
+    return result
 
-def predict_batch(data, model_type='xgboost'):
-    """
-    批量预测的便捷函数
+def predict_batch(data, model_type='lightgbm'):
+    """批量预测"""
+    predictor = CreditRiskPredictor(model_type)
+    probas = predictor.predict_proba(data)
+    risk_levels = predictor.predict_risk_level(data)
+    
+    results = pd.DataFrame({
+        'probability': probas,
+        'risk_level': risk_levels
+    })
+    return results
+
+def predict_all_models(data):
+    """使用所有模型进行预测
     Args:
-        data: 批量数据（DataFrame格式）
-        model_type: 模型类型
+        data: 字典（单样本）或DataFrame（批量样本）形式的输入数据
     Returns:
-        DataFrame: 预测结果
+        DataFrame: 包含所有模型预测结果的数据框
     """
-    predictor = CreditRiskPredictor(model_type=model_type)
-    return predictor.batch_predict(data)
+    predictor = EnsembleCreditRiskPredictor()
+    return predictor.predict_all(data)
 
 if __name__ == "__main__":
-    # 示例用法
+    # 示例数据
     sample_data = {
         'RevolvingUtilizationOfUnsecuredLines': 0.5,
         'age': 35,
@@ -238,30 +251,12 @@ if __name__ == "__main__":
         'NumberOfDependents': 2
     }
     
-    # 测试所有模型
-    for model_type in ['xgboost', 'lightgbm', 'random_forest', 'logistic_regression', 'catboost']:
-        try:
-            print(f"\n使用 {model_type} 模型预测:")
-            result = predict_single_sample(sample_data, model_type=model_type)
-            print("预测结果:", result)
-        except Exception as e:
-            print(f"使用 {model_type} 模型预测时出错: {str(e)}")
+    # 测试单模型预测
+    print("\n=== 单模型预测结果 ===")
+    result = predict_single_sample(sample_data, 'lightgbm')
+    print(f"LightGBM预测结果: {result}")
     
-    # 批量预测示例
-    print("\n批量预测示例:")
-    # 创建一些不同的样本
-    samples = [
-        {**sample_data, 'age': 25, 'MonthlyIncome': 3000},  # 年轻低收入
-        {**sample_data, 'age': 45, 'MonthlyIncome': 8000},  # 中年高收入
-        {**sample_data, 'NumberOfTimes90DaysLate': 2, 'DebtRatio': 0.8}  # 有逾期记录高负债
-    ]
-    
-    batch_data = pd.DataFrame(samples)
-    print("\n批量预测结果:")
-    for model_type in ['xgboost', 'lightgbm', 'random_forest', 'logistic_regression', 'catboost']:
-        try:
-            print(f"\n使用 {model_type} 模型批量预测:")
-            batch_results = predict_batch(batch_data, model_type=model_type)
-            print(batch_results)
-        except Exception as e:
-            print(f"使用 {model_type} 模型批量预测时出错: {str(e)}")
+    # 测试所有模型预测
+    print("\n=== 所有模型预测结果 ===")
+    results = predict_all_models(sample_data)
+    print(results)

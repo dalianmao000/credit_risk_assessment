@@ -111,11 +111,17 @@ python src/main.py --mode train --model_type lightgbm
 ```bash
 python src/main.py --mode predict --model_type lightgbm
 ```
+```bash
+python src/main.py --mode predict --use_all_models
+```
 
 #### 批量预测
 使用输入文件进行批量预测：
 ```bash
 python src/main.py --mode predict --model_type lightgbm --input_file data/test.csv --output_file results/predictions.csv
+```
+```bash
+python src/main.py --mode predict --use_all_models --input_file data/test.csv --output_file results/predictions.csv
 ```
 
 ### 4. 预测示例
