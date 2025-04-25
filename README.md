@@ -97,6 +97,10 @@ python src/main.py --mode explore
 ```bash
 python src/main.py --mode train --model_type lightgbm
 ```
+训练所有模型：
+```bash
+python src/main.py --mode train --train_all
+```
 
 支持的模型类型：
 - xgboost
@@ -107,19 +111,21 @@ python src/main.py --mode train --model_type lightgbm
 
 ### 3. 预测
 #### 单样本预测
-使用示例数据进行预测：
+使用特定模型和示例数据进行预测：
 ```bash
 python src/main.py --mode predict --model_type lightgbm
 ```
+使用所有模型和示例数据进行预测：
 ```bash
 python src/main.py --mode predict --use_all_models
 ```
 
 #### 批量预测
-使用输入文件进行批量预测：
+使用特定模型和输入文件进行批量预测：
 ```bash
 python src/main.py --mode predict --model_type lightgbm --input_file data/test.csv --output_file results/predictions.csv
 ```
+使用所有模型和输入文件进行批量预测：
 ```bash
 python src/main.py --mode predict --use_all_models --input_file data/test.csv --output_file results/predictions.csv
 ```
